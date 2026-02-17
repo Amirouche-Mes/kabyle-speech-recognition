@@ -1,0 +1,24 @@
+model:
+  name: openai/whisper-small
+  language: kabyle
+  task: transcribe
+
+training:
+  output_dir: checkpoints/whisper-small-kab
+  batch_size: 16
+  gradient_accumulation_steps: 2
+  learning_rate: 1e-5
+  epochs: 10
+  warmup_steps: 500
+  eval_steps: 500
+  save_steps: 500
+  logging_steps: 100
+  fp16: true
+  save_total_limit: 3
+  report_to: tensorboard
+
+data:
+  dataset: mozilla-foundation/common_voice_17_0
+  language: kab
+  sampling_rate: 16000
+  num_workers: 4
