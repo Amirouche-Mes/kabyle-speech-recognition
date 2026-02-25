@@ -22,33 +22,35 @@ Tracking what has been done and what comes next.
 - `CONTRIBUTING.md` with dev setup, code style, PR process
 - `docs/SETUP.md` with detailed setup and troubleshooting
 
-### Phase 4 - Initial Code
-- `src/data/dataset.py` - KabyleDataset class wrapping Common Voice
-- `src/data/preprocessing.py` - Audio preprocessing utilities
-- `scripts/download_data.py` - CLI script to download dataset via HuggingFace
-- `scripts/train.py` - Training script with Whisper + HF Trainer
-- `scripts/evaluate.py` - Evaluation script (WER/CER metrics)
-- `configs/whisper_small.yaml` and `configs/whisper_large_lora.yaml`
+### Phase 4 - Initial Code (v2 - Local Dataset)
+- `src/data/dataset.py` - KabyleDataset class loading from local Common Voice files (TSV + clips)
+- `src/data/preprocessing.py` - Audio preprocessing, WhisperDataCollator, compute_metrics (WER/CER)
+- `scripts/prepare_data.py` - Extract Common Voice archive locally
+- `scripts/train.py` - Full training pipeline with data collator, WER metrics, and LoRA support
+- `scripts/evaluate.py` - Evaluation script with local dataset loading
+- `configs/whisper_small.yaml` - Full fine-tuning config (Common Voice v24.0)
+- `configs/whisper_large_lora.yaml` - LoRA fine-tuning config (Common Voice v24.0)
 
 ### Phase 5 - Notebook
 - `notebooks/01_data_exploration.ipynb` - Dataset exploration notebook
 
 ### Phase 6 - Testing
 - `tests/conftest.py` - Pytest fixtures
-- `tests/unit/test_dataset.py` - Basic dataset tests
+- `tests/unit/test_dataset.py` - Dataset unit tests
 
 ## Key Decisions
 - Using HuggingFace `transformers` Whisper (not `openai-whisper`) for training ecosystem integration
-- Dataset access via HuggingFace Datasets with `HF_TOKEN`
+- Loading dataset from local Common Voice v24.0 archive (not HuggingFace Datasets)
 - Python 3.12+ minimum
 - Working on `dev` branch, merging to `main` via PRs
+- RunPod for cloud GPU training
 
 ## Next Steps
-1. Implement complete training loop with full data pipeline
-2. Add comprehensive test coverage
-3. Build preprocessing pipeline (audio normalization, filtering)
-4. Implement full evaluation suite with detailed metrics
-5. Add more training configurations and hyperparameter experiments
+1. Extract the dataset archive on RunPod and verify loading
+2. Run first training experiment (Whisper Small)
+3. Add comprehensive test coverage
+4. Build audio preprocessing pipeline (normalization, filtering)
+5. Run LoRA fine-tuning experiment (Whisper Large v3)
 6. Create demo/inference script
 7. Add more exploration notebooks
-8. Run first training experiments on cloud GPU
+8. Hyperparameter tuning experiments

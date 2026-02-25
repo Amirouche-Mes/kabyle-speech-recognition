@@ -2,6 +2,7 @@
 
 import argparse
 import os
+from functools import partial
 from pathlib import Path
 
 import yaml
@@ -13,7 +14,12 @@ from transformers import (
 )
 
 from src.data.dataset import KabyleDataset
-from src.data.preprocessing import get_processor, prepare_dataset
+from src.data.preprocessing import (
+    WhisperDataCollator,
+    compute_metrics,
+    get_processor,
+    prepare_dataset,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,6 +30,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         required=True,
         help="Path to training configuration YAML file",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        default=None,
+        help="Override data directory from config",
     )
     parser.add_argument(
         "--output-dir",
@@ -53,6 +65,33 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def setup_lora(model: WhisperForConditionalGeneration, lora_config: dict) -> None:
+    """Apply LoRA adapters to the model.
+
+    Args:
+        model: The Whisper model to apply LoRA to.
+        lora_config: Dictionary with LoRA hyperparameters.
+
+    Returns:
+        Model with LoRA adapters applied.
+    """
+    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+
+    model = prepare_model_for_kbit_training(model)
+
+    config = LoraConfig(
+        r=lora_config["r"],
+        lora_alpha=lora_config["lora_alpha"],
+        lora_dropout=lora_config["lora_dropout"],
+        target_modules=lora_config["target_modules"],
+        bias="none",
+    )
+
+    model = get_peft_model(model, config)
+    model.print_trainable_parameters()
+    return model
+
+
 def main() -> None:
     """Run the training pipeline."""
     load_dotenv()
@@ -61,9 +100,11 @@ def main() -> None:
 
     model_name = config["model"]["name"]
     output_dir = args.output_dir or config["training"]["output_dir"]
+    data_dir = args.data_dir or config["data"].get("data_dir", "data/raw/cv-corpus-24.0-2025-12-05/kab")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     print(f"Model: {model_name}")
+    print(f"Data:  {data_dir}")
     print(f"Output: {output_dir}")
 
     # Load processor and model
@@ -73,14 +114,22 @@ def main() -> None:
     model.generation_config.task = "transcribe"
     model.generation_config.forced_decoder_ids = None
 
+    # Apply LoRA if configured
+    if "lora" in config:
+        print("Applying LoRA adapters...")
+        model = setup_lora(model, config["lora"])
+
     # Load and preprocess dataset
-    hf_token = os.getenv("HF_TOKEN")
-    dataset = KabyleDataset(hf_token=hf_token)
+    dataset = KabyleDataset(data_dir=data_dir)
     data = dataset.load()
 
     num_workers = int(os.getenv("NUM_WORKERS", "4"))
     train_data = prepare_dataset(data["train"], processor, num_proc=num_workers)
     val_data = prepare_dataset(data["validation"], processor, num_proc=num_workers)
+
+    # Data collator and metrics
+    data_collator = WhisperDataCollator(processor=processor)
+    metrics_fn = partial(compute_metrics, processor=processor)
 
     # Training arguments
     training_args = Seq2SeqTrainingArguments(
@@ -110,6 +159,8 @@ def main() -> None:
         args=training_args,
         train_dataset=train_data,
         eval_dataset=val_data,
+        data_collator=data_collator,
+        compute_metrics=metrics_fn,
         processing_class=processor,
     )
 

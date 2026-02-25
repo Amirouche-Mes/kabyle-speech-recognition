@@ -1,49 +1,90 @@
-"""Kabyle dataset loading and management."""
+"""Kabyle dataset loading from local Common Voice files."""
 
+import csv
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from datasets import Audio, DatasetDict, load_dataset
+import librosa
+import numpy as np
+from datasets import Audio, Dataset, DatasetDict
 
 
 @dataclass
 class KabyleDataset:
-    """Wrapper for the Mozilla Common Voice Kabyle dataset.
+    """Loader for the Mozilla Common Voice Kabyle dataset from local files.
 
-    Loads the dataset from HuggingFace and prepares it for Whisper fine-tuning.
+    Reads TSV metadata and audio clips extracted from the Common Voice archive.
 
     Args:
-        dataset_name: HuggingFace dataset identifier.
-        language: Language code for Common Voice.
-        version: Dataset version to use.
-        cache_dir: Local directory for caching downloaded data.
-        hf_token: HuggingFace API token for authentication.
+        data_dir: Path to the extracted Common Voice directory
+            (e.g., 'data/raw/cv-corpus-24.0-2025-12-05/kab').
         sampling_rate: Target audio sampling rate in Hz.
     """
 
-    dataset_name: str = "mozilla-foundation/common_voice_17_0"
-    language: str = "kab"
-    version: str = "17.0"
-    cache_dir: Optional[str] = None
-    hf_token: Optional[str] = None
+    data_dir: str = "data/raw/cv-corpus-24.0-2025-12-05/kab"
     sampling_rate: int = 16000
     _dataset: Optional[DatasetDict] = field(default=None, init=False, repr=False)
 
-    def load(self) -> DatasetDict:
-        """Load the dataset from HuggingFace.
+    # Common Voice uses 'dev' for validation
+    SPLIT_MAP: dict[str, str] = field(
+        default_factory=lambda: {"train": "train", "validation": "dev", "test": "test"},
+        init=False,
+    )
+
+    def _load_split(self, split: str) -> Dataset:
+        """Load a single dataset split from its TSV file.
+
+        Args:
+            split: One of 'train', 'validation', or 'test'.
 
         Returns:
-            The loaded dataset with train, validation, and test splits.
+            A HuggingFace Dataset with 'audio' and 'sentence' columns.
         """
-        self._dataset = load_dataset(
-            self.dataset_name,
-            self.language,
-            token=self.hf_token,
-            cache_dir=self.cache_dir,
-            trust_remote_code=True,
-        )
-        self._dataset = self._dataset.cast_column("audio", Audio(sampling_rate=self.sampling_rate))
+        tsv_name = self.SPLIT_MAP[split]
+        tsv_path = Path(self.data_dir) / f"{tsv_name}.tsv"
+
+        if not tsv_path.exists():
+            raise FileNotFoundError(f"Split file not found: {tsv_path}")
+
+        clips_dir = Path(self.data_dir) / "clips"
+        paths = []
+        sentences = []
+
+        with open(tsv_path, encoding="utf-8") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            for row in reader:
+                audio_path = clips_dir / row["path"]
+                if audio_path.exists():
+                    paths.append(str(audio_path))
+                    sentences.append(row["sentence"])
+
+        ds = Dataset.from_dict({"audio": paths, "sentence": sentences})
+        ds = ds.cast_column("audio", Audio(sampling_rate=self.sampling_rate))
+        return ds
+
+    def load(self) -> DatasetDict:
+        """Load all splits (train, validation, test) from local files.
+
+        Returns:
+            DatasetDict with train, validation, and test splits.
+        """
+        data_path = Path(self.data_dir)
+        if not data_path.exists():
+            raise FileNotFoundError(
+                f"Data directory not found: {data_path}. "
+                "Run 'python scripts/prepare_data.py' to extract the archive first."
+            )
+
+        splits = {}
+        for split in self.SPLIT_MAP:
+            tsv_path = data_path / f"{self.SPLIT_MAP[split]}.tsv"
+            if tsv_path.exists():
+                print(f"Loading {split} split...")
+                splits[split] = self._load_split(split)
+                print(f"  {split}: {len(splits[split]):,} examples")
+
+        self._dataset = DatasetDict(splits)
         return self._dataset
 
     @property
@@ -53,7 +94,7 @@ class KabyleDataset:
             self.load()
         return self._dataset
 
-    def get_split(self, split: str) -> DatasetDict:
+    def get_split(self, split: str) -> Dataset:
         """Get a specific dataset split.
 
         Args:
@@ -65,7 +106,7 @@ class KabyleDataset:
         Raises:
             ValueError: If the split name is invalid.
         """
-        valid_splits = {"train", "validation", "test"}
+        valid_splits = set(self.SPLIT_MAP.keys())
         if split not in valid_splits:
             raise ValueError(f"Invalid split '{split}'. Must be one of {valid_splits}")
         return self.dataset[split]

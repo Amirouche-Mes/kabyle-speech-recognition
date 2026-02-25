@@ -1,8 +1,10 @@
-"""Audio preprocessing utilities for Whisper fine-tuning."""
+"""Audio preprocessing and data collation for Whisper fine-tuning."""
 
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+import torch
 from transformers import WhisperFeatureExtractor, WhisperProcessor, WhisperTokenizer
 
 
@@ -68,3 +70,71 @@ def prepare_dataset(
         num_proc=num_proc,
     )
     return dataset
+
+
+@dataclass
+class WhisperDataCollator:
+    """Data collator for Whisper fine-tuning.
+
+    Pads input features and labels to the same length within a batch.
+    Replaces padding token ids in labels with -100 so they are ignored
+    by the cross-entropy loss.
+
+    Args:
+        processor: WhisperProcessor instance.
+    """
+
+    processor: WhisperProcessor
+
+    def __call__(self, features: list[dict[str, Any]]) -> dict[str, torch.Tensor]:
+        """Collate a list of features into a batch.
+
+        Args:
+            features: List of preprocessed examples with 'input_features' and 'labels'.
+
+        Returns:
+            Batch dictionary with padded 'input_features', 'labels', and 'decoder_input_ids'.
+        """
+        input_features = [{"input_features": f["input_features"]} for f in features]
+        batch = self.processor.feature_extractor.pad(input_features, return_tensors="pt")
+
+        label_features = [{"input_ids": f["labels"]} for f in features]
+        labels_batch = self.processor.tokenizer.pad(label_features, return_tensors="pt")
+
+        labels = labels_batch["input_ids"].masked_fill(
+            labels_batch.attention_mask.ne(1), -100
+        )
+
+        # Remove BOS token if the model prepends it automatically
+        if (labels[:, 0] == self.processor.tokenizer.bos_token_id).all().cpu().item():
+            labels = labels[:, 1:]
+
+        batch["labels"] = labels
+        return batch
+
+
+def compute_metrics(pred: Any, processor: WhisperProcessor) -> dict[str, float]:
+    """Compute WER and CER metrics from model predictions.
+
+    Args:
+        pred: EvalPrediction object with predictions and label_ids.
+        processor: WhisperProcessor for decoding.
+
+    Returns:
+        Dictionary with 'wer' and 'cer' values as percentages.
+    """
+    from jiwer import cer, wer
+
+    pred_ids = pred.predictions
+    label_ids = pred.label_ids
+
+    # Replace -100 with pad token for decoding
+    label_ids[label_ids == -100] = processor.tokenizer.pad_token_id
+
+    pred_str = processor.batch_decode(pred_ids, skip_special_tokens=True)
+    label_str = processor.batch_decode(label_ids, skip_special_tokens=True)
+
+    word_error_rate = 100 * wer(label_str, pred_str)
+    char_error_rate = 100 * cer(label_str, pred_str)
+
+    return {"wer": word_error_rate, "cer": char_error_rate}
