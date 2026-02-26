@@ -84,6 +84,15 @@ python scripts/evaluate.py --model-path checkpoints/best_model
 
 ## Results
 
+### Baseline (pre-trained, no fine-tuning)
+
+| Model              | WER (%) | CER (%) |
+|--------------------|---------|---------|
+| Whisper Small      | TBD     | TBD     |
+| Whisper Large v3   | TBD     | TBD     |
+
+### After Fine-tuning
+
 | Model                  | WER (%) | CER (%) | Training Time |
 |------------------------|---------|---------|---------------|
 | Whisper Small          | TBD     | TBD     | TBD           |
