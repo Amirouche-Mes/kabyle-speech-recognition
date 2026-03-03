@@ -11,6 +11,9 @@ from transformers import WhisperFeatureExtractor, WhisperProcessor, WhisperToken
 def get_processor(model_name: str = "openai/whisper-small") -> WhisperProcessor:
     """Load the Whisper processor for a given model.
 
+    Kabyle is not natively supported by Whisper, so we don't set a language
+    token. The model will learn the language during fine-tuning.
+
     Args:
         model_name: HuggingFace model identifier.
 
@@ -18,7 +21,7 @@ def get_processor(model_name: str = "openai/whisper-small") -> WhisperProcessor:
         WhisperProcessor with feature extractor and tokenizer.
     """
     feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
-    tokenizer = WhisperTokenizer.from_pretrained(model_name, language="kabyle", task="transcribe")
+    tokenizer = WhisperTokenizer.from_pretrained(model_name, task="transcribe")
     return WhisperProcessor(feature_extractor=feature_extractor, tokenizer=tokenizer)
 
 

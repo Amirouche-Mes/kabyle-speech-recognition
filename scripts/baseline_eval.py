@@ -71,8 +71,8 @@ def main() -> None:
     model = WhisperForConditionalGeneration.from_pretrained(args.model).to(device)
     model.eval()
 
-    # Force Kabyle language and transcribe task
-    model.generation_config.language = "kabyle"
+    # Kabyle is not in Whisper's language list, so we don't force a language.
+    # The model will auto-detect or default to its closest match.
     model.generation_config.task = "transcribe"
     model.generation_config.forced_decoder_ids = None
 

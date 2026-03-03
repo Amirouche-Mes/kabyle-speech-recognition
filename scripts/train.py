@@ -110,7 +110,6 @@ def main() -> None:
     # Load processor and model
     processor = get_processor(model_name)
     model = WhisperForConditionalGeneration.from_pretrained(model_name)
-    model.generation_config.language = "kabyle"
     model.generation_config.task = "transcribe"
     model.generation_config.forced_decoder_ids = None
 
