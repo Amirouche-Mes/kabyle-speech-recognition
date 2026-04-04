@@ -11,6 +11,7 @@ import argparse
 import json
 from pathlib import Path
 
+import soundfile as sf
 import torch
 from jiwer import cer, wer
 from tqdm import tqdm
@@ -33,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data-dir",
         type=str,
-        default="data/raw/cv-corpus-24.0-2025-12-05/kab",
+        default="data/raw/cv-corpus-25.0-2026-03-09/kab",
         help="Path to the extracted Common Voice Kabyle data",
     )
     parser.add_argument(
@@ -89,10 +90,10 @@ def main() -> None:
     predictions = []
 
     for example in tqdm(eval_data):
-        audio = example["audio"]
+        audio_array, sampling_rate = sf.read(example["audio"], dtype="float32")
         input_features = processor.feature_extractor(
-            audio["array"],
-            sampling_rate=audio["sampling_rate"],
+            audio_array,
+            sampling_rate=sampling_rate,
             return_tensors="pt",
         ).input_features.to(device)
 

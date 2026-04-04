@@ -1,13 +1,14 @@
 """Kabyle dataset loading from local Common Voice files."""
 
 import csv
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-import librosa
-import numpy as np
-from datasets import Audio, Dataset, DatasetDict
+from datasets import Dataset, DatasetDict
+
+logger = logging.getLogger("train")
 
 
 @dataclass
@@ -18,11 +19,11 @@ class KabyleDataset:
 
     Args:
         data_dir: Path to the extracted Common Voice directory
-            (e.g., 'data/raw/cv-corpus-24.0-2025-12-05/kab').
+            (e.g., 'data/raw/cv-corpus-25.0-2026-03-09/kab').
         sampling_rate: Target audio sampling rate in Hz.
     """
 
-    data_dir: str = "data/raw/cv-corpus-24.0-2025-12-05/kab"
+    data_dir: str = "data/raw/cv-corpus-25.0-2026-03-09/kab"
     sampling_rate: int = 16000
     _dataset: Optional[DatasetDict] = field(default=None, init=False, repr=False)
 
@@ -60,7 +61,6 @@ class KabyleDataset:
                     sentences.append(row["sentence"])
 
         ds = Dataset.from_dict({"audio": paths, "sentence": sentences})
-        ds = ds.cast_column("audio", Audio(sampling_rate=self.sampling_rate))
         return ds
 
     def load(self) -> DatasetDict:
@@ -80,9 +80,9 @@ class KabyleDataset:
         for split in self.SPLIT_MAP:
             tsv_path = data_path / f"{self.SPLIT_MAP[split]}.tsv"
             if tsv_path.exists():
-                print(f"Loading {split} split...")
+                logger.info(f"Loading {split} split...")
                 splits[split] = self._load_split(split)
-                print(f"  {split}: {len(splits[split]):,} examples")
+                logger.info(f"  {split}: {len(splits[split]):,} examples")
 
         self._dataset = DatasetDict(splits)
         return self._dataset

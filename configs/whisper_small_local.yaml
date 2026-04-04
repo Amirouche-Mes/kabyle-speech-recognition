@@ -1,0 +1,25 @@
+model:
+  name: openai/whisper-small
+  language: kabyle
+  task: transcribe
+
+training:
+  output_dir: checkpoints/whisper-small-local-test
+  batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1e-5
+  epochs: 1
+  warmup_steps: 5
+  eval_steps: 999      # skip eval during local test (only 100 steps total)
+  save_steps: 100
+  logging_steps: 5
+  eval_strategy: "no"  # skip eval entirely for local pipeline test
+  fp16: false          # no CUDA on Mac
+  bf16: false        # set to true if MPS gives dtype errors (M2 supports bf16)
+  save_total_limit: 1
+  report_to: none    # no tensorboard needed locally
+
+data:
+  data_dir: data/raw/cv-corpus-25.0-2026-03-09/kab
+  sampling_rate: 16000
+  num_workers: 2

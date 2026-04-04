@@ -45,12 +45,33 @@ Tracking what has been done and what comes next.
 - Working on `dev` branch, merging to `main` via PRs
 - RunPod for cloud GPU training
 
+### Phase 7 - Local Pipeline Validation
+- Updated all dataset/config paths from Common Voice v24.0 to **v25.0** (2026-03-09)
+- Created `.env` with local testing settings (CPU/MPS, sample limits, no W&B auth)
+- Created `configs/whisper_small_local.yaml` — Mac-safe config (fp16 off, batch 1, eval disabled)
+- Fixed audio decoding: replaced `datasets.Audio` feature (requires torchcodec) with direct `soundfile` loading in `preprocessing.py`, `evaluate.py`, `baseline_eval.py`
+- Added `src/utils/logging.py` — timestamped log files per run, routes transformers/datasets logs to file
+- Wired logger into `train.py` (replaces all prints) and `src/data/dataset.py`
+- Added `MAX_TRAIN_SAMPLES` / `MAX_EVAL_SAMPLES` env var support in `train.py` for local slice testing
+- Made `eval_strategy`, `bf16`, `load_best_model_at_end` configurable from YAML
+- Added top-level `try/except` in `train.py` to capture main-process errors in log file
+- Created `scripts/run_pipeline.py` — orchestrates baseline eval → train → post eval → comparison table
+- Added `--max-samples` flag to `evaluate.py`
+- **Validated full local pipeline**: 100 train samples, 1 epoch, MPS backend, loss 6.0 → 3.4, ~2 min total
+
+## Key Decisions
+- Using HuggingFace `transformers` Whisper (not `openai-whisper`) for training ecosystem integration
+- Loading dataset from local Common Voice v25.0 archive (not HuggingFace Datasets)
+- Audio decoded with `soundfile` directly — avoids `torchcodec` dependency in datasets 4.x
+- Python 3.12+ minimum
+- Working on `dev` branch, merging to `main` via PRs
+- RunPod for cloud GPU training
+
 ## Next Steps
-1. Extract the dataset archive on RunPod and verify loading
-2. Run first training experiment (Whisper Small)
-3. Add comprehensive test coverage
-4. Build audio preprocessing pipeline (normalization, filtering)
-5. Run LoRA fine-tuning experiment (Whisper Large v3)
+1. Run full benchmark pipeline locally: baseline WER → train → post WER
+2. Set up RunPod instance and transfer dataset + code
+3. Run first full training experiment (Whisper Small, 152k samples, 10 epochs)
+4. Run LoRA fine-tuning experiment (Whisper Large v3)
+5. Add comprehensive test coverage
 6. Create demo/inference script
-7. Add more exploration notebooks
-8. Hyperparameter tuning experiments
+7. Hyperparameter tuning experiments

@@ -20,6 +20,7 @@ from src.data.preprocessing import (
     get_processor,
     prepare_dataset,
 )
+from src.utils.logging import get_logger
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,28 +54,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_config(config_path: str) -> dict:
-    """Load training configuration from YAML file.
-
-    Args:
-        config_path: Path to the YAML configuration file.
-
-    Returns:
-        Configuration dictionary.
-    """
+    """Load training configuration from YAML file."""
     with open(config_path) as f:
         return yaml.safe_load(f)
 
 
-def setup_lora(model: WhisperForConditionalGeneration, lora_config: dict) -> None:
-    """Apply LoRA adapters to the model.
-
-    Args:
-        model: The Whisper model to apply LoRA to.
-        lora_config: Dictionary with LoRA hyperparameters.
-
-    Returns:
-        Model with LoRA adapters applied.
-    """
+def setup_lora(model: WhisperForConditionalGeneration, lora_config: dict) -> WhisperForConditionalGeneration:
+    """Apply LoRA adapters to the model."""
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
     model = prepare_model_for_kbit_training(model)
@@ -98,33 +84,60 @@ def main() -> None:
     args = parse_args()
     config = load_config(args.config)
 
+    logger = get_logger("train")
+
     model_name = config["model"]["name"]
     output_dir = args.output_dir or config["training"]["output_dir"]
-    data_dir = args.data_dir or config["data"].get("data_dir", "data/raw/cv-corpus-24.0-2025-12-05/kab")
+    data_dir = args.data_dir or config["data"].get("data_dir", "data/raw/cv-corpus-25.0-2026-03-09/kab")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    print(f"Model: {model_name}")
-    print(f"Data:  {data_dir}")
-    print(f"Output: {output_dir}")
+    logger.info("=" * 50)
+    logger.info("Whisper Kabyle Fine-tuning")
+    logger.info("=" * 50)
+    logger.info(f"Model:      {model_name}")
+    logger.info(f"Data dir:   {data_dir}")
+    logger.info(f"Output dir: {output_dir}")
+    logger.info(f"Config:     {args.config}")
 
     # Load processor and model
+    logger.info("Loading processor and model...")
     processor = get_processor(model_name)
     model = WhisperForConditionalGeneration.from_pretrained(model_name)
     model.generation_config.task = "transcribe"
     model.generation_config.forced_decoder_ids = None
+    logger.info("Model loaded.")
 
     # Apply LoRA if configured
     if "lora" in config:
-        print("Applying LoRA adapters...")
+        logger.info("Applying LoRA adapters...")
         model = setup_lora(model, config["lora"])
+        logger.info("LoRA applied.")
 
-    # Load and preprocess dataset
+    # Load dataset
+    logger.info("Loading dataset...")
     dataset = KabyleDataset(data_dir=data_dir)
     data = dataset.load()
+    logger.info(f"Dataset loaded — train: {len(data['train']):,} | val: {len(data['validation']):,}")
 
+    # Apply sample limits from environment (for local testing)
     num_workers = int(os.getenv("NUM_WORKERS", "4"))
-    train_data = prepare_dataset(data["train"], processor, num_proc=num_workers)
-    val_data = prepare_dataset(data["validation"], processor, num_proc=num_workers)
+    train_split = data["train"]
+    val_split = data["validation"]
+
+    max_train = os.getenv("MAX_TRAIN_SAMPLES")
+    max_eval = os.getenv("MAX_EVAL_SAMPLES")
+    if max_train:
+        train_split = train_split.select(range(min(int(max_train), len(train_split))))
+        logger.info(f"[local] Limiting train to {len(train_split)} samples")
+    if max_eval:
+        val_split = val_split.select(range(min(int(max_eval), len(val_split))))
+        logger.info(f"[local] Limiting eval to {len(val_split)} samples")
+
+    # Preprocess
+    logger.info("Preprocessing audio features...")
+    train_data = prepare_dataset(train_split, processor, num_proc=num_workers)
+    val_data = prepare_dataset(val_split, processor, num_proc=num_workers)
+    logger.info("Preprocessing done.")
 
     # Data collator and metrics
     data_collator = WhisperDataCollator(processor=processor)
@@ -138,19 +151,26 @@ def main() -> None:
         learning_rate=float(config["training"]["learning_rate"]),
         warmup_steps=config["training"].get("warmup_steps", 500),
         num_train_epochs=config["training"]["epochs"],
-        eval_strategy="steps",
+        eval_strategy=config["training"].get("eval_strategy", "steps"),
         eval_steps=config["training"].get("eval_steps", 500),
         save_steps=config["training"].get("save_steps", 500),
         logging_steps=config["training"].get("logging_steps", 100),
         fp16=config["training"].get("fp16", True),
+        bf16=config["training"].get("bf16", False),
         predict_with_generate=True,
         generation_max_length=225,
         save_total_limit=config["training"].get("save_total_limit", 3),
-        load_best_model_at_end=True,
+        load_best_model_at_end=config["training"].get("eval_strategy", "steps") != "no",
         metric_for_best_model="wer",
         greater_is_better=False,
         report_to=config["training"].get("report_to", "tensorboard"),
     )
+
+    logger.info("Training arguments:")
+    logger.info(f"  batch_size={config['training']['batch_size']}")
+    logger.info(f"  epochs={config['training']['epochs']}")
+    logger.info(f"  learning_rate={config['training']['learning_rate']}")
+    logger.info(f"  fp16={config['training'].get('fp16', True)} | bf16={config['training'].get('bf16', False)}")
 
     # Initialize trainer
     trainer = Seq2SeqTrainer(
@@ -164,14 +184,24 @@ def main() -> None:
     )
 
     # Train
-    print("Starting training...")
+    logger.info("Starting training...")
     trainer.train(resume_from_checkpoint=args.resume_from)
+    logger.info("Training complete.")
 
     # Save final model
     trainer.save_model(f"{output_dir}/final")
     processor.save_pretrained(f"{output_dir}/final")
-    print(f"Training complete! Model saved to {output_dir}/final")
+    logger.info(f"Model saved to {output_dir}/final")
 
 
 if __name__ == "__main__":
-    main()
+    import logging
+    import traceback
+
+    try:
+        main()
+    except Exception:
+        logging.getLogger("train").error(
+            "Training failed with exception:\n" + traceback.format_exc()
+        )
+        raise

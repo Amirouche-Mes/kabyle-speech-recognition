@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
+import soundfile as sf
 import torch
 from jiwer import cer, wer
 from tqdm import tqdm
@@ -24,7 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data-dir",
         type=str,
-        default="data/raw/cv-corpus-24.0-2025-12-05/kab",
+        default="data/raw/cv-corpus-25.0-2026-03-09/kab",
         help="Path to the extracted Common Voice Kabyle data",
     )
     parser.add_argument(
@@ -39,6 +40,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Path to save results JSON (default: <model-path>/eval_results.json)",
+    )
+    parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=None,
+        help="Limit evaluation to N samples (useful for quick tests)",
     )
     return parser.parse_args()
 
@@ -60,16 +67,19 @@ def main() -> None:
     dataset = KabyleDataset(data_dir=args.data_dir)
     test_data = dataset.get_split(args.split)
 
+    if args.max_samples:
+        test_data = test_data.select(range(min(args.max_samples, len(test_data))))
+
     # Run inference
     references = []
     predictions = []
 
     print(f"Evaluating on {len(test_data)} examples from '{args.split}' split...")
     for example in tqdm(test_data):
-        audio = example["audio"]
+        audio_array, sampling_rate = sf.read(example["audio"], dtype="float32")
         input_features = processor.feature_extractor(
-            audio["array"],
-            sampling_rate=audio["sampling_rate"],
+            audio_array,
+            sampling_rate=sampling_rate,
             return_tensors="pt",
         ).input_features.to(device)
 

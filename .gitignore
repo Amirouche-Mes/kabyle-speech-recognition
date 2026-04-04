@@ -55,3 +55,4 @@ Clé API.docx
 # Coverage
 .coverage
 coverage.xml
+*.docx

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+import soundfile as sf
 import torch
 from transformers import WhisperFeatureExtractor, WhisperProcessor, WhisperTokenizer
 
@@ -25,25 +26,37 @@ def get_processor(model_name: str = "openai/whisper-small") -> WhisperProcessor:
     return WhisperProcessor(feature_extractor=feature_extractor, tokenizer=tokenizer)
 
 
+TARGET_SAMPLE_RATE = 16000
+
+
 def preprocess_audio(
     example: dict[str, Any],
     processor: WhisperProcessor,
 ) -> dict[str, Any]:
     """Preprocess a single audio example for Whisper.
 
-    Extracts log-mel spectrogram features and tokenizes the transcription.
+    Loads audio directly with soundfile (bypasses datasets audio decoder),
+    resamples to 16kHz if needed, extracts log-mel spectrogram features,
+    and tokenizes the transcription.
 
     Args:
-        example: A dataset example with 'audio' and 'sentence' fields.
+        example: A dataset example with 'audio' (file path) and 'sentence' fields.
         processor: WhisperProcessor instance.
 
     Returns:
         Dictionary with 'input_features' and 'labels'.
     """
-    audio = example["audio"]
+    audio_array, sampling_rate = sf.read(example["audio"], dtype="float32")
+
+    # Resample if the file isn't already 16kHz
+    if sampling_rate != TARGET_SAMPLE_RATE:
+        import librosa
+        audio_array = librosa.resample(audio_array, orig_sr=sampling_rate, target_sr=TARGET_SAMPLE_RATE)
+        sampling_rate = TARGET_SAMPLE_RATE
+
     input_features = processor.feature_extractor(
-        audio["array"],
-        sampling_rate=audio["sampling_rate"],
+        audio_array,
+        sampling_rate=sampling_rate,
         return_tensors="np",
     ).input_features[0]
 

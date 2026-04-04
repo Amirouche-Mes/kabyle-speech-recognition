@@ -12,7 +12,7 @@ class TestKabyleDataset:
         """Test that KabyleDataset initializes with correct defaults."""
         dataset = KabyleDataset()
         assert dataset.sampling_rate == 16000
-        assert "cv-corpus-24.0" in dataset.data_dir
+        assert "cv-corpus-25.0" in dataset.data_dir
 
     def test_custom_initialization(self) -> None:
         """Test that KabyleDataset accepts custom parameters."""

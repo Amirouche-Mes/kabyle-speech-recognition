@@ -18,6 +18,6 @@ training:
   report_to: tensorboard
 
 data:
-  data_dir: data/raw/cv-corpus-24.0-2025-12-05/kab
+  data_dir: data/raw/cv-corpus-25.0-2026-03-09/kab
   sampling_rate: 16000
   num_workers: 4

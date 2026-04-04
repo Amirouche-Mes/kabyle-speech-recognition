@@ -11,7 +11,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--archive",
         type=str,
-        default="data/raw/cv-corpus-24.0-2025-12-05-kab.tar.gz",
+        default="data/raw/Kabyle-DS.tar.gz",
         help="Path to the .tar.gz archive",
     )
     parser.add_argument(
