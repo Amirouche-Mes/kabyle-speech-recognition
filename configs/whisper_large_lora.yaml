@@ -26,7 +26,7 @@ training:
   logging_steps: 50
   fp16: true
   save_total_limit: 3
-  report_to: tensorboard  # change to "wandb" if you set WANDB_API_KEY
+  report_to: wandb
 
 data:
   data_dir: data/raw/cv-corpus-25.0-2026-03-09/kab
