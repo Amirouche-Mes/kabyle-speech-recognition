@@ -22,7 +22,7 @@ DATA_DIR="$REPO_DIR/data/raw"
 ARCHIVE_NAME="Kabyle-DS.tar.gz"
 EXTRACTED_DIR="cv-corpus-25.0-2026-03-09"
 S3_ENDPOINT="https://s3api-us-ca-2.runpod.io"
-BUCKET="${BUCKET_NAME:?BUCKET_NAME env var is required}"
+BUCKET="${BUCKET_NAME:-}"
 
 echo "================================================================"
 echo " Kabyle Speech Recognition — RunPod Setup"
