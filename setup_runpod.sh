@@ -61,26 +61,30 @@ pip install --quiet \
 pip install --quiet -e "$REPO_DIR" --no-deps
 echo "      Done."
 
-# ─── 3. (S3 download skipped — dataset uploaded directly via scp) ─────────────
+# ─── 3. AWS CLI + configure for RunPod S3 ────────────────────────────────────
 echo ""
-echo "[3/5] Skipping S3 download — expecting dataset already on volume via scp."
+echo "[3/5] Configuring AWS CLI for RunPod S3..."
+if ! command -v aws &>/dev/null; then
+    pip install --quiet awscli
+fi
+aws configure set aws_access_key_id     "${S3_ACCESS_KEY:?S3_ACCESS_KEY env var is required}"
+aws configure set aws_secret_access_key "${S3_SECRET_KEY:?S3_SECRET_KEY env var is required}"
+aws configure set default.region        us-ca-2
+echo "      AWS CLI configured."
 
-# ─── 4. Extract dataset ───────────────────────────────────────────────────────
+# ─── 4. Download + extract dataset ───────────────────────────────────────────
 echo ""
 echo "[4/5] Dataset..."
 mkdir -p "$DATA_DIR"
 
-# Move archive from /workspace root if scp'd there
-if [ -f "$WORKSPACE/$ARCHIVE_NAME" ] && [ ! -f "$DATA_DIR/$ARCHIVE_NAME" ]; then
-    echo "      Moving archive from $WORKSPACE to $DATA_DIR..."
-    mv "$WORKSPACE/$ARCHIVE_NAME" "$DATA_DIR/$ARCHIVE_NAME"
-fi
-
 if [ ! -f "$DATA_DIR/$ARCHIVE_NAME" ]; then
-    echo "ERROR: Archive not found at $DATA_DIR/$ARCHIVE_NAME"
-    echo "       scp it to the pod first:"
-    echo "       scp -i ~/.ssh/id_ed25519 Kabyle-DS.tar.gz <user>@ssh.runpod.io:/workspace/"
-    exit 1
+    echo "      Downloading $ARCHIVE_NAME from S3 (~17 GiB)..."
+    aws s3 cp "s3://$BUCKET/$ARCHIVE_NAME" "$DATA_DIR/$ARCHIVE_NAME" \
+        --endpoint-url "$S3_ENDPOINT" \
+        --region us-ca-2
+    echo "      Download complete."
+else
+    echo "      Archive already present — skipping download."
 fi
 
 if [ ! -d "$DATA_DIR/$EXTRACTED_DIR" ]; then
