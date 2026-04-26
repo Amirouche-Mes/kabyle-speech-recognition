@@ -103,7 +103,7 @@ def main() -> None:
     # Load model and processor
     log.info("Loading model and processor...")
     processor = WhisperProcessor.from_pretrained(args.model)
-    model = WhisperForConditionalGeneration.from_pretrained(args.model).to(device)
+    model = WhisperForConditionalGeneration.from_pretrained(args.model, torch_dtype=torch.float32).to(device)
     model.eval()
 
     # Kabyle is not in Whisper's language list, so we don't force a language.
