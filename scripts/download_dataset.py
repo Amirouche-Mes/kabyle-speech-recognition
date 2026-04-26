@@ -48,7 +48,11 @@ def download(dest_path: str) -> None:
         region_name=REGION,
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
-        config=Config(retries={"max_attempts": 10, "mode": "standard"}),
+        config=Config(
+            retries={"max_attempts": 10, "mode": "standard"},
+            read_timeout=30,       # fail hung connections after 30s so retry kicks in
+            connect_timeout=10,
+        ),
     )
 
     meta = s3.head_object(Bucket=BUCKET, Key=KEY)
