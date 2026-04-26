@@ -49,11 +49,9 @@ def get_logger(name: str, log_dir: str = "logs") -> logging.Logger:
     logger.addHandler(console)
     logger.addHandler(file_handler)
 
-    # Also route transformers/datasets library logs to the same file
+    # Silence transformers/datasets noisy INFO logs — only warnings and above
     for lib in ("transformers", "datasets"):
-        lib_logger = logging.getLogger(lib)
-        lib_logger.setLevel(logging.INFO)
-        lib_logger.addHandler(file_handler)
+        logging.getLogger(lib).setLevel(logging.WARNING)
 
     logger.info(f"Logging to {log_file}")
     return logger

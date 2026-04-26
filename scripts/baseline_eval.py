@@ -9,8 +9,11 @@ Usage:
 
 import argparse
 import json
+import logging
+import sys
 from pathlib import Path
 
+import librosa
 import soundfile as sf
 import torch
 from jiwer import cer, wer
@@ -18,6 +21,26 @@ from tqdm import tqdm
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
 from src.data.dataset import KabyleDataset
+
+
+def setup_logger(log_file: Path) -> logging.Logger:
+    """Set up logger that writes to both stdout and a log file."""
+    logger = logging.getLogger("baseline_eval")
+    logger.setLevel(logging.INFO)
+    fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s", datefmt="%H:%M:%S")
+
+    # Console handler
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setFormatter(fmt)
+    logger.addHandler(ch)
+
+    # File handler
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    fh = logging.FileHandler(log_file, encoding="utf-8")
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+
+    return logger
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,6 +79,12 @@ def parse_args() -> argparse.Namespace:
         default="results/baseline",
         help="Directory to save results (default: results/baseline)",
     )
+    parser.add_argument(
+        "--log-checkpoints",
+        type=int,
+        default=4,
+        help="Number of checkpoints at which to log sample predictions (default: 4)",
+    )
     return parser.parse_args()
 
 
@@ -63,11 +92,16 @@ def main() -> None:
     """Run baseline evaluation."""
     args = parse_args()
 
+    model_short = args.model.replace("/", "_")
+    output_dir = Path(args.output)
+    log = setup_logger(output_dir / f"{model_short}_{args.split}.log")
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Device: {device}")
-    print(f"Model:  {args.model}")
+    log.info("Device: %s", device)
+    log.info("Model:  %s", args.model)
 
     # Load model and processor
+    log.info("Loading model and processor...")
     processor = WhisperProcessor.from_pretrained(args.model)
     model = WhisperForConditionalGeneration.from_pretrained(args.model).to(device)
     model.eval()
@@ -84,13 +118,25 @@ def main() -> None:
     if args.max_samples:
         eval_data = eval_data.select(range(min(args.max_samples, len(eval_data))))
 
-    print(f"Evaluating on {len(eval_data)} examples from '{args.split}' split...\n")
+    total = len(eval_data)
+    log.info("Evaluating on %d examples from '%s' split...", total, args.split)
+
+    # Determine checkpoint indices at which to log sample predictions
+    n_checkpoints = max(1, args.log_checkpoints)
+    checkpoint_indices = {
+        int(round((i / n_checkpoints) * total)) - 1
+        for i in range(1, n_checkpoints + 1)
+    }
+    checkpoint_indices = {max(0, idx) for idx in checkpoint_indices}
 
     references = []
     predictions = []
 
-    for example in tqdm(eval_data):
+    for step, example in enumerate(tqdm(eval_data, desc="Evaluating")):
         audio_array, sampling_rate = sf.read(example["audio"], dtype="float32")
+        if sampling_rate != 16000:
+            audio_array = librosa.resample(audio_array, orig_sr=sampling_rate, target_sr=16000)
+            sampling_rate = 16000
         input_features = processor.feature_extractor(
             audio_array,
             sampling_rate=sampling_rate,
@@ -104,44 +150,50 @@ def main() -> None:
         predictions.append(transcription)
         references.append(example["sentence"])
 
-    # Calculate metrics
+        # Log rolling metrics + a sample at each checkpoint
+        if step in checkpoint_indices:
+            partial_wer = wer(references, predictions) * 100
+            partial_cer = cer(references, predictions) * 100
+            log.info(
+                "Checkpoint [%d/%d] — WER: %.2f%%  CER: %.2f%%",
+                step + 1, total, partial_wer, partial_cer,
+            )
+            log.info("  Sample ref : %s", references[-1])
+            log.info("  Sample pred: %s", predictions[-1])
+
+    # Final metrics
     word_error_rate = wer(references, predictions)
     char_error_rate = cer(references, predictions)
-
-    # Model short name for results file
-    model_short = args.model.replace("/", "_")
 
     results = {
         "type": "baseline",
         "model": args.model,
         "split": args.split,
-        "num_examples": len(eval_data),
+        "num_examples": total,
         "wer": round(word_error_rate * 100, 2),
         "cer": round(char_error_rate * 100, 2),
     }
 
-    print(f"\n{'=' * 50}")
-    print(f"BASELINE RESULTS: {args.model}")
-    print(f"{'=' * 50}")
-    print(f"  Split:    {args.split}")
-    print(f"  Samples:  {len(eval_data)}")
-    print(f"  WER:      {results['wer']}%")
-    print(f"  CER:      {results['cer']}%")
-    print(f"{'=' * 50}")
+    log.info("=" * 50)
+    log.info("BASELINE RESULTS: %s", args.model)
+    log.info("=" * 50)
+    log.info("  Split:    %s", args.split)
+    log.info("  Samples:  %d", total)
+    log.info("  WER:      %.2f%%", results["wer"])
+    log.info("  CER:      %.2f%%", results["cer"])
+    log.info("=" * 50)
 
-    # Show some example predictions
-    print(f"\nSample predictions:")
+    log.info("Sample predictions (first 5):")
     for i in range(min(5, len(references))):
-        print(f"\n  Reference:  {references[i]}")
-        print(f"  Prediction: {predictions[i]}")
+        log.info("  [%d] ref : %s", i, references[i])
+        log.info("  [%d] pred: %s", i, predictions[i])
 
     # Save results
-    output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{model_short}_{args.split}.json"
     with open(output_path, "w") as f:
         json.dump(results, f, indent=2)
-    print(f"\nResults saved to {output_path}")
+    log.info("Results saved to %s", output_path)
 
     # Save detailed predictions
     details_path = output_dir / f"{model_short}_{args.split}_predictions.json"
@@ -151,7 +203,7 @@ def main() -> None:
     ]
     with open(details_path, "w") as f:
         json.dump(details, f, indent=2, ensure_ascii=False)
-    print(f"Detailed predictions saved to {details_path}")
+    log.info("Detailed predictions saved to %s", details_path)
 
 
 if __name__ == "__main__":

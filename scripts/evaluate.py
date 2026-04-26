@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
+import librosa
 import soundfile as sf
 import torch
 from jiwer import cer, wer
@@ -77,6 +78,9 @@ def main() -> None:
     print(f"Evaluating on {len(test_data)} examples from '{args.split}' split...")
     for example in tqdm(test_data):
         audio_array, sampling_rate = sf.read(example["audio"], dtype="float32")
+        if sampling_rate != 16000:
+            audio_array = librosa.resample(audio_array, orig_sr=sampling_rate, target_sr=16000)
+            sampling_rate = 16000
         input_features = processor.feature_extractor(
             audio_array,
             sampling_rate=sampling_rate,

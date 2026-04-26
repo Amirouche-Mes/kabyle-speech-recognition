@@ -1,6 +1,7 @@
 """Training script for Whisper fine-tuning on Kabyle speech data."""
 
 import argparse
+import logging
 import os
 from functools import partial
 from pathlib import Path
@@ -10,8 +11,13 @@ from dotenv import load_dotenv
 from transformers import (
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
+    TrainerCallback,
+    TrainerControl,
+    TrainerState,
+    TrainingArguments,
     WhisperForConditionalGeneration,
 )
+from transformers.trainer_callback import PrinterCallback
 
 from src.data.dataset import KabyleDataset
 from src.data.preprocessing import (
@@ -21,6 +27,84 @@ from src.data.preprocessing import (
     prepare_dataset,
 )
 from src.utils.logging import get_logger
+
+
+class DetailedLogCallback(TrainerCallback):
+    """Routes Trainer metrics (loss, grad_norm, lr, WER/CER) to our structured logger."""
+
+    def __init__(self, logger: logging.Logger) -> None:
+        self.logger = logger
+        self._last_eval_metrics: dict = {}
+
+    def on_log(
+        self,
+        _args: TrainingArguments,
+        state: TrainerState,
+        _control: TrainerControl,
+        logs: dict | None = None,
+        **_kwargs,
+    ) -> None:
+        if not logs or ("eval_loss" not in logs and "eval_wer" not in logs):
+            return
+
+        self._last_eval_metrics = logs
+        self.logger.info(
+            "Step %4d | EVAL | loss: %s | WER: %s | CER: %s",
+            state.global_step,
+            f"{float(logs['eval_loss']):.4f}" if "eval_loss" in logs else "n/a",
+            f"{float(logs['eval_wer']):.2f}%" if "eval_wer" in logs else "n/a",
+            f"{float(logs['eval_cer']):.2f}%" if "eval_cer" in logs else "n/a",
+        )
+
+    def on_save(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        _control: TrainerControl,
+        **_kwargs,
+    ) -> None:
+        ckpt_path = f"{args.output_dir}/checkpoint-{state.global_step}"
+        self.logger.info("--- Checkpoint saved: %s", ckpt_path)
+        if self._last_eval_metrics:
+            wer = self._last_eval_metrics.get("eval_wer")
+            cer = self._last_eval_metrics.get("eval_cer")
+            loss = self._last_eval_metrics.get("eval_loss")
+            self.logger.info(
+                "    Last eval at checkpoint — loss: %s | WER: %s | CER: %s",
+                f"{loss:.4f}" if loss is not None else "n/a",
+                f"{wer:.2f}%" if wer is not None else "n/a",
+                f"{cer:.2f}%" if cer is not None else "n/a",
+            )
+        else:
+            self.logger.info("    No eval metrics yet at this checkpoint.")
+
+    def on_train_end(
+        self,
+        _args: TrainingArguments,
+        state: TrainerState,
+        _control: TrainerControl,
+        **_kwargs,
+    ) -> None:
+        self.logger.info("=" * 50)
+        self.logger.info("TRAINING COMPLETE")
+        self.logger.info("  Total steps   : %d", state.global_step)
+        self.logger.info("  Total epochs  : %.2f", state.epoch or 0)
+        if state.log_history:
+            losses = [e["loss"] for e in state.log_history if "loss" in e]
+            if losses:
+                self.logger.info("  Initial loss  : %.4f", losses[0])
+                self.logger.info("  Final loss    : %.4f", losses[-1])
+                self.logger.info(
+                    "  Loss drop     : %.4f  (%.1f%%)",
+                    losses[0] - losses[-1],
+                    (losses[0] - losses[-1]) / losses[0] * 100,
+                )
+        if self._last_eval_metrics:
+            wer = self._last_eval_metrics.get("eval_wer")
+            cer = self._last_eval_metrics.get("eval_cer")
+            self.logger.info("  Best eval WER : %s", f"{wer:.2f}%" if wer is not None else "n/a")
+            self.logger.info("  Best eval CER : %s", f"{cer:.2f}%" if cer is not None else "n/a")
+        self.logger.info("=" * 50)
 
 
 def parse_args() -> argparse.Namespace:
@@ -181,7 +265,9 @@ def main() -> None:
         data_collator=data_collator,
         compute_metrics=metrics_fn,
         processing_class=processor,
+        callbacks=[DetailedLogCallback(logger)],
     )
+    trainer.remove_callback(PrinterCallback)
 
     # Train
     logger.info("Starting training...")

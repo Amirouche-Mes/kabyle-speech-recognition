@@ -166,8 +166,9 @@ if __name__ == "__main__":
 # =============================================================================
 # MANUAL STEP-BY-STEP EXECUTION (for running in a Python terminal)
 # Copy/paste each block one at a time to step through the pipeline manually.
+# These blocks are intentionally NOT executed when running this script directly.
 # =============================================================================
-
+#
 # -- SETUP (run this first) ---------------------------------------------------
 # import argparse, yaml, sys
 # from dotenv import load_dotenv
@@ -195,7 +196,7 @@ if __name__ == "__main__":
 # logger.info(f"output_dir  = {output_dir}")
 # logger.info(f"data_dir    = {data_dir}")
 # logger.info(f"model_short = {model_short}")
-
+#
 # -- STEP 1: Baseline eval ----------------------------------------------------
 # baseline_cmd = [
 #     python, "scripts/baseline_eval.py",
@@ -206,12 +207,12 @@ if __name__ == "__main__":
 # ]
 # logger.info(f"Running: {' '.join(baseline_cmd)}")
 # run_step(baseline_cmd, logger, "Baseline evaluation (before training)")
-
+#
 # -- STEP 2: Training ---------------------------------------------------------
 # train_cmd = [python, "scripts/train.py", "--config", args.config]
 # logger.info(f"Running: {' '.join(train_cmd)}")
 # run_step(train_cmd, logger, "Fine-tuning")
-
+#
 # -- STEP 3: Post-training eval -----------------------------------------------
 # post_cmd = [
 #     python, "scripts/evaluate.py",
@@ -222,7 +223,7 @@ if __name__ == "__main__":
 # ]
 # logger.info(f"Running: {' '.join(post_cmd)}")
 # run_step(post_cmd, logger, "Post-training evaluation")
-
+#
 # -- COMPARISON ---------------------------------------------------------------
 # baseline = load_results(f"results/baseline/{model_short}_test.json")
 # post     = load_results(f"results/post_training/{model_short}_test.json")

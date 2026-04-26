@@ -20,12 +20,13 @@ training:
   learning_rate: 1e-4
   epochs: 5
   warmup_steps: 250
+  eval_strategy: steps
   eval_steps: 500
   save_steps: 500
   logging_steps: 50
   fp16: true
   save_total_limit: 3
-  report_to: tensorboard
+  report_to: tensorboard  # change to "wandb" if you set WANDB_API_KEY
 
 data:
   data_dir: data/raw/cv-corpus-25.0-2026-03-09/kab
