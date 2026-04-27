@@ -83,7 +83,8 @@ def prepare_dataset(
     dataset = dataset.map(
         lambda example: preprocess_audio(example, processor),
         remove_columns=dataset.column_names,
-        num_proc=num_proc,
+        num_proc=1,
+        writer_batch_size=500,
     )
     return dataset
 
