@@ -46,6 +46,10 @@ class LazyWhisperDataset(TorchDataset):
 
         labels = self.processor.tokenizer(example["sentence"]).input_ids
 
+        # Whisper max decoder length is 448 tokens — truncate long transcripts
+        if len(labels) > 448:
+            labels = labels[:448]
+
         return {"input_features": input_features, "labels": labels}
 
 
