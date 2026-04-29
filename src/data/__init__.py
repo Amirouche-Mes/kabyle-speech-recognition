@@ -1,4 +1,4 @@
 from src.data.dataset import KabyleDataset
-from src.data.preprocessing import WhisperDataCollator, compute_metrics, preprocess_audio
+from src.data.preprocessing import LazyWhisperDataset, WhisperDataCollator, compute_metrics
 
-__all__ = ["KabyleDataset", "WhisperDataCollator", "compute_metrics", "preprocess_audio"]
+__all__ = ["KabyleDataset", "LazyWhisperDataset", "WhisperDataCollator", "compute_metrics"]
