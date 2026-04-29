@@ -6,21 +6,12 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 import torch
+from torch.utils.data import Dataset as TorchDataset
 from transformers import WhisperFeatureExtractor, WhisperProcessor, WhisperTokenizer
 
 
 def get_processor(model_name: str = "openai/whisper-small") -> WhisperProcessor:
-    """Load the Whisper processor for a given model.
-
-    Kabyle is not natively supported by Whisper, so we don't set a language
-    token. The model will learn the language during fine-tuning.
-
-    Args:
-        model_name: HuggingFace model identifier.
-
-    Returns:
-        WhisperProcessor with feature extractor and tokenizer.
-    """
+    """Load the Whisper processor for a given model."""
     feature_extractor = WhisperFeatureExtractor.from_pretrained(model_name)
     tokenizer = WhisperTokenizer.from_pretrained(model_name, task="transcribe")
     return WhisperProcessor(feature_extractor=feature_extractor, tokenizer=tokenizer)
@@ -29,64 +20,42 @@ def get_processor(model_name: str = "openai/whisper-small") -> WhisperProcessor:
 TARGET_SAMPLE_RATE = 16000
 
 
-def preprocess_audio(
-    example: dict[str, Any],
-    processor: WhisperProcessor,
-) -> dict[str, Any]:
-    """Preprocess a single audio example for Whisper.
+class LazyWhisperDataset(TorchDataset):
+    """Lazy dataset that preprocesses audio on-the-fly instead of upfront."""
 
-    Loads audio directly with soundfile (bypasses datasets audio decoder),
-    resamples to 16kHz if needed, extracts log-mel spectrogram features,
-    and tokenizes the transcription.
+    def __init__(self, hf_dataset, processor: WhisperProcessor):
+        self.dataset = hf_dataset
+        self.processor = processor
 
-    Args:
-        example: A dataset example with 'audio' (file path) and 'sentence' fields.
-        processor: WhisperProcessor instance.
+    def __len__(self):
+        return len(self.dataset)
 
-    Returns:
-        Dictionary with 'input_features' and 'labels'.
-    """
-    audio_array, sampling_rate = sf.read(example["audio"], dtype="float32")
+    def __getitem__(self, idx):
+        example = self.dataset[idx]
+        audio_array, sampling_rate = sf.read(example["audio"], dtype="float32")
 
-    # Resample if the file isn't already 16kHz
-    if sampling_rate != TARGET_SAMPLE_RATE:
-        import librosa
-        audio_array = librosa.resample(audio_array, orig_sr=sampling_rate, target_sr=TARGET_SAMPLE_RATE)
-        sampling_rate = TARGET_SAMPLE_RATE
+        if sampling_rate != TARGET_SAMPLE_RATE:
+            import librosa
+            audio_array = librosa.resample(audio_array, orig_sr=sampling_rate, target_sr=TARGET_SAMPLE_RATE)
 
-    input_features = processor.feature_extractor(
-        audio_array,
-        sampling_rate=sampling_rate,
-        return_tensors="np",
-    ).input_features[0]
+        input_features = self.processor.feature_extractor(
+            audio_array,
+            sampling_rate=TARGET_SAMPLE_RATE,
+            return_tensors="np",
+        ).input_features[0]
 
-    labels = processor.tokenizer(example["sentence"]).input_ids
+        labels = self.processor.tokenizer(example["sentence"]).input_ids
 
-    return {"input_features": input_features, "labels": labels}
+        return {"input_features": input_features, "labels": labels}
 
 
 def prepare_dataset(
     dataset: Any,
     processor: WhisperProcessor,
     num_proc: int = 4,
-) -> Any:
-    """Apply preprocessing to an entire dataset split.
-
-    Args:
-        dataset: A HuggingFace dataset split.
-        processor: WhisperProcessor instance.
-        num_proc: Number of processes for parallel preprocessing.
-
-    Returns:
-        Preprocessed dataset with audio features and tokenized labels.
-    """
-    dataset = dataset.map(
-        lambda example: preprocess_audio(example, processor),
-        remove_columns=dataset.column_names,
-        num_proc=1,
-        writer_batch_size=500,
-    )
-    return dataset
+) -> LazyWhisperDataset:
+    """Wrap a HuggingFace dataset in a lazy preprocessor."""
+    return LazyWhisperDataset(dataset, processor)
 
 
 @dataclass
